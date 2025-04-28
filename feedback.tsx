@@ -1,13 +1,16 @@
 import { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CSSProperties } from 'react';
+
 const FeedbackPage = () => {
   const [activeIndex, setActiveIndex] = useState(2); // Default to FEEDBACK page (index 2)
   const [showDefects, setShowDefects] = useState(false);
-  // Removed unused selectedDefect state
+  const [selectedDefect, setSelectedDefect] = useState<keyof typeof defectTypesDisplay | null>(null);
   const navRefs = useRef<HTMLDivElement[]>([]);
   const pillRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const [defectFeedbacks, setDefectFeedbacks] = useState<any[]>([]);
+  const [filteredFeedbacks, setFilteredFeedbacks] = useState<any[]>([]);
 
   const navItems = [
     { label: 'HOME', route: '/' },
@@ -16,14 +19,25 @@ const FeedbackPage = () => {
     { label: 'SIMULATE CONTINUITY', route: '/simulate' },
   ];
 
+  // Map these to match backend CLASSES array
   const defectTypes = [
-    "Pin Holes", 
-    "Mouse Bites", 
-    "Shorts", 
-    "Open Circuits", 
-    "Protrusion", 
-    "Spurious Copper"
+    "open", 
+    "short", 
+    "mousebite", 
+    "protrusion", 
+    "copper", 
+    "pin-hole"
   ];
+
+  // For display purposes
+  const defectTypesDisplay = {
+    "open": "Open Circuits",
+    "short": "Short Circuits",
+    "mousebite": "Mousebites",
+    "protrusion": "Protrusion",
+    "copper": "Spurious Copper",
+    "pin-hole": "Pin Holes"
+  };
 
   useEffect(() => {
     const activeEl = navRefs.current[activeIndex];
@@ -36,7 +50,44 @@ const FeedbackPage = () => {
     }
   }, [activeIndex]);
 
+  // Fetch and store feedback data when component mounts
+  useEffect(() => {
+    // This would normally come from your backend via props or context
+    // For this example, we'll simulate the feedback data structure
+    const sampleFeedbacks = [
+      {
+        type: "mousebite",
+        count: 2,
+        feedback: "<span style='color:#0066cc;'>2 Mousebite(s) detected</span><br><span style='color:#ff0000;'>Impact:</span> Possible leak paths.<br><span style='color:#008000;'>Solution:</span> Verify that all vias are properly filled and sealed."
+      },
+      {
+        type: "open",
+        count: 1,
+        feedback: "<span style='color:#0066cc;'>1 Open Circuit(s) detected</span><br><span style='color:#ff0000;'>Impact:</span> Electrical connectivity issues.<br><span style='color:#008000;'>Solution:</span> Check for broken traces or disconnects."
+      },
+      {
+        type: "short",
+        count: 3,
+        feedback: "<span style='color:#0066cc;'>3 Short Circuit(s) detected</span><br><span style='color:#ff0000;'>Impact:</span> Excessive current flow, potential overheating.<br><span style='color:#008000;'>Solution:</span> Inspect for unintended connections between traces."
+      }
+    ];
+    
+    setDefectFeedbacks(sampleFeedbacks);
+    setFilteredFeedbacks(sampleFeedbacks);
+  }, []);
+
+  // Filter feedbacks when a defect is selected
+  useEffect(() => {
+    if (selectedDefect) {
+      const filtered = defectFeedbacks.filter(item => item.type === selectedDefect);
+      setFilteredFeedbacks(filtered);
+    } else {
+      setFilteredFeedbacks(defectFeedbacks);
+    }
+  }, [selectedDefect, defectFeedbacks]);
+
   const styles: { [key: string]: CSSProperties } = {
+    // ... styles remain unchanged
     container: {
       display: 'flex',
       flexDirection: 'column',
@@ -349,12 +400,49 @@ const FeedbackPage = () => {
       gridTemplateColumns: 'repeat(2, 1fr)',
       gap: '15px',
       width: '100%',
+    },
+    feedbackContainer: {
+      backgroundColor: '#cecece',
+      padding: '15px',
+      borderRadius: '5px',
+      marginTop: '10px',
+      width: '100%'
+    },
+    feedbackTitle: {
+      fontWeight: 'bold',
+      fontSize: '16px',
+      marginBottom: '10px',
+      textAlign: 'center' // Center the title text
+    },
+    feedbackText: {
+      fontSize: '14px',
+      lineHeight: '1.4'
+    },
+    simulationButtonContainer: {
+      display: 'flex',
+      justifyContent: 'center',
+      width: '100%',
+      marginTop: '15px',
+    },
+  };
+
+  // Get the button text based on selected defect
+  const getDefectButtonText = () => {
+    if (selectedDefect) {
+      return ` ${defectTypesDisplay[selectedDefect].toUpperCase()} ${showDefects ? '▲' : '▼'}`;
     }
+    return `SHOW ALL DEFECTS ${showDefects ? '▲' : '▼'}`;
   };
 
   const handleDefectSelection = (defect: string) => {
     setShowDefects(false);
+    setSelectedDefect(defect === "all" ? null : defect as keyof typeof defectTypesDisplay);
     console.log(`Selected defect: ${defect}`);
+  };
+
+  // Function to safely render HTML content
+  const renderHTML = (htmlString: string) => {
+    return { __html: htmlString };
   };
 
   return (
@@ -419,15 +507,18 @@ const FeedbackPage = () => {
                   <div style={styles.resultBoxesContainer}>
                     <div style={styles.defectItem}>
                       <span style={styles.similarityLabel}>SIMILARITY:</span>
-                      <span style={styles.similarityValue}>100%</span>
+                      <span style={styles.similarityValue}>85%</span>
                     </div>
                     <div style={styles.defectItem}>
                       <span style={styles.gradeLabel}>GRADE:</span>
-                      <span style={styles.gradeValue}>A</span>
+                      <span style={styles.gradeValue}>B</span>
                     </div>
                   </div>
                   <div style={styles.actionButtons}>
-                    <button style={styles.actionButton}>
+                    <button 
+                      style={styles.actionButton}
+                      onClick={() => navigate('/capture')}
+                    >
                       <span style={styles.buttonIcon}>⬆️</span>
                       UPLOAD NEW IMAGES
                     </button>
@@ -447,24 +538,32 @@ const FeedbackPage = () => {
               </div>
               <div style={styles.errorsSection}>
                 <div style={styles.errorsHeader}>
-                  <div style={styles.errorsTitle}>ERRORS DETECTED</div>
+                  <div style={styles.errorsTitle}>
+                    ERRORS DETECTED
+                  </div>
                   <div style={styles.defectsButtonContainer}>
                     <button 
                       style={styles.showDefectsButton}
                       onClick={() => setShowDefects(!showDefects)}
                     >
-                      SHOW ALL DEFECTS {showDefects ? '▲' : '▼'}
+                      {getDefectButtonText()}
                     </button>
                     
                     {showDefects && (
                       <div style={styles.defectsDropdown}>
+                        <div 
+                          style={styles.defectOption}
+                          onClick={() => handleDefectSelection("all")}
+                        >
+                          All Defects
+                        </div>
                         {defectTypes.map((defect, index) => (
                           <div 
                             key={index}
                             style={index === defectTypes.length - 1 ? styles.defectOptionLast : styles.defectOption}
                             onClick={() => handleDefectSelection(defect)}
                           >
-                            {defect}
+                            {defectTypesDisplay[defect as keyof typeof defectTypesDisplay] || defect}
                           </div>
                         ))}
                       </div>
@@ -472,34 +571,48 @@ const FeedbackPage = () => {
                   </div>
                 </div>
 
-                {/* Gray Box containing defects grid */}
+                {/* Gray Box containing defects grid or details */}
                 <div style={styles.grayBox}>
-                  <div style={styles.defectsGrid}>
-                    <div style={styles.defectItem}>
-                      <span style={styles.defectLabel}>Defect:</span>
-                      <span style={styles.defectValue}>Mousebites</span>
+                  {!selectedDefect ? (
+                    // Show the grid of all detected defects without details
+                    <div style={styles.defectsGrid}>
+                      {defectFeedbacks.map((item: { type: keyof typeof defectTypesDisplay; count: number }, index) => (
+                        <div 
+                          key={index} 
+                          style={styles.defectItem}
+                          onClick={() => setSelectedDefect(item.type)}
+                        >
+                          <span style={styles.defectLabel}>Defect:</span>
+                          <span style={styles.defectValue}>
+                            {defectTypesDisplay[item.type]} ({item.count})
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                    <div style={styles.defectItem}>
-                      <span style={styles.defectLabel}>Defect:</span>
-                      <span style={styles.defectValue}>Pin-Holes</span>
+                  ) : (
+                    // Show detailed feedback for the selected defect
+                    <div>
+                      {filteredFeedbacks.map((item: { type: keyof typeof defectTypesDisplay; count: number; feedback: string }, index) => (
+                        <div key={index} style={styles.feedbackContainer}>
+                          <div 
+                            style={styles.feedbackText}
+                            dangerouslySetInnerHTML={renderHTML(item.feedback)}
+                          />
+                        </div>
+                      ))}
+                      
+                      {/* New "Go to Simulation" button container */}
+                      <div style={styles.simulationButtonContainer}>
+                        <button 
+                          style={styles.actionButton}
+                          onClick={() => navigate('/simulate')}
+                        >
+                          <span style={styles.buttonIcon}>🔄</span>
+                          GO TO SIMULATION
+                        </button>
+                      </div>
                     </div>
-                    <div style={styles.defectItem}>
-                      <span style={styles.defectLabel}>Defect:</span>
-                      <span style={styles.defectValue}>Open Circuits</span>
-                    </div>
-                    <div style={styles.defectItem}>
-                      <span style={styles.defectLabel}>Defect:</span>
-                      <span style={styles.defectValue}>Short Circuit</span>
-                    </div>
-                    <div style={styles.defectItem}>
-                      <span style={styles.defectLabel}>Defect:</span>
-                      <span style={styles.defectValue}>Protrusion</span>
-                    </div>
-                    <div style={styles.defectItem}>
-                      <span style={styles.defectLabel}>Defect:</span>
-                      <span style={styles.defectValue}>Spurious Copper</span>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
