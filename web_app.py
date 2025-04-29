@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_from_directory, url_for, jsonify
+from flask import Flask, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 import cv2
 import numpy as np
@@ -8,10 +8,8 @@ import matplotlib.pyplot as plt
 import time
 from skimage.metrics import structural_similarity as ssim
 from fpdf import FPDF
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
@@ -92,9 +90,7 @@ def generate_pdf_report(defects, similarity_percentage, grade, feedbacks, output
 
     pdf.cell(200, 10, txt="Feedback:", ln=True)
     for feedback in feedbacks:
-        # Remove HTML tags for PDF
-        clean_feedback = feedback.replace("<br>", "\n")
-        pdf.multi_cell(0, 10, txt=clean_feedback)
+        pdf.multi_cell(0, 10, txt=feedback)
 
     pdf.output(output_path)
 
@@ -191,23 +187,88 @@ def draw_defects(image_name, defects):
 
     return all_defects_img, defect_images, defect_counts
 
-def generate_defect_feedback(defect_type, count):
-    """
-    Generate feedback for a specific defect type and count.
-    """
-    return f"{count} instances of {defect_type} defect detected."
-
 def generate_feedback(defect_counts):
     feedbacks = []
-    feedback_details = []
-    
     for defect_type, count in defect_counts.items():
         if count > 0:
             feedback = generate_defect_feedback(defect_type, count)
             feedbacks.append(feedback)
-            
-            # Create a structured feedback object for the frontend
-            feedback_details.append({
-                "type": defect_type,
-                "count": count
-            })
+    return feedbacks
+
+def generate_defect_feedback(defect_type, count):
+    feedbacks = {
+        "open": "Defect Type: Open Circuit<br>Impact: Electrical connectivity issues.<br>Solution: Check for broken traces or disconnects.",
+        "short": "Defect Type: Short Circuit<br>Impact: Excessive current flow, potential overheating.<br>Solution: Inspect for unintended connections between traces.",
+        "mousebite": "Defect Type: Mousebite<br>Impact: Possible leak paths.<br>Solution: Verify that all vias are properly filled and sealed.",
+        "protrusion": "Defect Type: Protrusion<br>Impact: Signal degradation.<br>Solution: Remove or reduce the length of spurs using a PCB editor.",
+        "copper": "Defect Type: Copper Puddles<br>Impact: Insulation issues.<br>Solution: Ensure proper etching and copper deposition processes.",
+        "pin-hole": "Defect Type: Pin-hole<br>Impact: Weak solder joints.<br>Solution: Improve surface finish and soldering techniques."
+    }
+    return f"{count} {defect_type}(s) detected.<br>{feedbacks[defect_type]}"
+
+@app.route('/', methods=['GET', 'POST'])
+def upload_file():
+    if request.method == 'POST':
+        test_file = request.files['test_image']
+        temp_file = request.files['temp_image']
+
+        test_image_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(test_file.filename))
+        temp_image_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(temp_file.filename))
+
+        test_file.save(test_image_path)
+        temp_file.save(temp_image_path)
+
+        start_time = time.time()
+        defects, similarity_percentage, grade, highlighted_diff = process_images(test_image_path, temp_image_path)
+        end_time = time.time()
+        inference_time = end_time - start_time
+
+        all_defects_img, defect_images, defect_counts = draw_defects(test_image_path, defects)
+        feedbacks = generate_feedback(defect_counts)
+
+        defect_image_paths = {}
+        for defect_type, img in defect_images.items():
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            defect_filename = f"{defect_type}_result.png"
+            defect_image_path = os.path.join(app.config['UPLOAD_FOLDER'], defect_filename)
+            plt.imsave(defect_image_path, img_rgb)
+            defect_image_paths[defect_type] = defect_filename
+
+        all_defects_img_rgb = cv2.cvtColor(all_defects_img, cv2.COLOR_BGR2RGB)
+        all_defects_image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'all_defects_result.png')
+        plt.imsave(all_defects_image_path, all_defects_img_rgb)
+
+        highlighted_diff_rgb = cv2.cvtColor(highlighted_diff, cv2.COLOR_BGR2RGB)
+        highlighted_diff_path = os.path.join(app.config['UPLOAD_FOLDER'], 'highlighted_diff.png')
+        plt.imsave(highlighted_diff_path, highlighted_diff_rgb)
+
+        pdf_report_path = os.path.join(app.config['UPLOAD_FOLDER'], 'report.pdf')
+        generate_pdf_report(defects, similarity_percentage, grade, feedbacks, pdf_report_path)
+
+        circuit_content = generate_circuit_file(defects, test_image_path)
+        circuit_path = os.path.join(app.config['UPLOAD_FOLDER'], 'circuit.txt')
+        with open(circuit_path, 'w') as f:
+            f.write(circuit_content)
+
+        return render_template('result.html', 
+                             image_url=url_for('uploaded_file', filename='all_defects_result.png'), 
+                             inference_time=f"{inference_time:.2f} seconds", 
+                             feedbacks=feedbacks, 
+                             defects=defects, 
+                             CLASSES=CLASSES, 
+                             defect_image_paths=defect_image_paths,
+                             similarity_percentage=f"{similarity_percentage:.2f}%",
+                             grade=grade,
+                             highlighted_diff_url=url_for('uploaded_file', filename='highlighted_diff.png'),
+                             pdf_report_url=url_for('uploaded_file', filename='report.pdf'),
+                             circuit_file_url=url_for('uploaded_file', filename='circuit.txt'))
+
+    return render_template('upload.html')
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
